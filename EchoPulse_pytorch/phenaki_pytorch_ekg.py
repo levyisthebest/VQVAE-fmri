@@ -22,6 +22,7 @@ parent_dir = os.path.abspath(os.path.join(os.getcwd(), '../..'))
 sys.path.append(parent_dir)
 
 import yaml
+import json
 import EchoPulse_pytorch.STMEM.models.encoder as encoder
 
 from EchoPulse_pytorch.cvivit import CViViT
@@ -407,40 +408,26 @@ class Phenaki(nn.Module):
         assert cond_drop_prob > 0.
         self.cond_drop_prob = cond_drop_prob # classifier free guidance for transformers - @crowsonkb
 
-        ###### EKG ENCODER ######
-        config_path='/STMEM/configs/downstream/st_mem.yaml'
+        ###### FMRI ENCODER ######     
+        config_path='/STMEM/configs/fmri_encoder.json'
         
         with open(config_path, 'r') as f:
-            config = yaml.safe_load(f)
+            config = json.load(f)
             
         model_name = config['model_name']
         if model_name in encoder.__dict__:
             model = encoder.__dict__[model_name](**config['model'])
         else:
             raise ValueError(f'Unsupported model name: {model_name}')
-
-        if config['mode'] != "scratch":
-            checkpoint = torch.load(config['encoder_path'], map_location='cpu')
-            print(f"Load pre-trained checkpoint from: {config['encoder_path']}")
-            checkpoint_model = checkpoint['model']
-            state_dict = model.state_dict()
-            for k in ['head.weight', 'head.bias']:
-                if k in checkpoint_model and checkpoint_model[k].shape != state_dict[k].shape:
-                    print(f"Remove key {k} from pre-trained checkpoint")
-                    del checkpoint_model[k]
-            msg = model.load_state_dict(checkpoint_model, strict=False)
-            print(msg)
-            assert set(msg.missing_keys) == {'head.weight', 'head.bias'}
         
-        if config['mode'] == "linprobe":
-            for _, p in model.named_parameters():
-                p.requires_grad = False
-            for _, p in model.head.named_parameters():
-                p.requires_grad = True
-                
-        self.encode_ekg = model
-        print("ST_MEM Encoder loaded and frozen successfully.")
-        ###### EKG ENCODER ######
+        checkpoint_file = config['checkpoint_file']
+        checkpoint = torch.load(checkpoint_file, map_location='cpu')
+        ckp = checkpoint['model'] if 'model' in checkpoint.keys() else checkpoint
+        model.load_state_dict(ckp)        
+        self.encode_ekg = model # FMRI ENCODER
+        print("FMRI Encoder loaded and frozen successfully.")
+
+        ###### FMRI ENCODER ######
         
     def sample_images(
         self,
